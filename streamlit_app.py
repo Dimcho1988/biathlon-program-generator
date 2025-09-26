@@ -160,3 +160,63 @@ if gen_btn:
         except Exception as e:
             st.error(f"Възникна грешка: {e}")
             st.exception(e)
+# ---------------- DEMO: Модели (CS & ACWR) и комбиниране ----------------
+import io
+
+st.markdown("---")
+with st.expander("🧪 Модели (CS & ACWR) – демо (комбиниране)", expanded=False):
+    # Импорт на твоите нови модули
+    from cs_model import compute_cs
+    from acwr_model import compute_acwr
+    from generator import generate_plan as gen_simple_plan
+
+    st.subheader("Critical Speed от два TT теста")
+    c1, c2, c3, c4 = st.columns(4)
+    d1 = c1.number_input("TT1 дистанция (м)", min_value=100, max_value=20000, value=1200, step=100)
+    t1 = c2.number_input("TT1 време (сек.)",  min_value=60,  max_value=7200,  value=240,  step=10)
+    d2 = c3.number_input("TT2 дистанция (м)", min_value=200, max_value=50000, value=3000, step=100)
+    t2 = c4.number_input("TT2 време (сек.)",  min_value=120, max_value=14400, value=720,  step=10)
+
+    if st.button("Изчисли CS", key="btn_cs"):
+        cs_calc = compute_cs([{"distance": d1, "time": t1}, {"distance": d2, "time": t2}])["cs"]
+        st.session_state["demo_cs"] = cs_calc
+
+    cs_val = st.session_state.get("demo_cs", None)
+    if cs_val:
+        st.metric("Critical Speed", f"{cs_val:.2f} km/h")
+
+    st.subheader("ACWR от история (Excel с колона 'Minutes')")
+    acwr_file = st.file_uploader("Качи история (.xlsx)", type=["xlsx"], key="acwr_hist")
+    acwr_val = None
+    if acwr_file:
+        hist_df = pd.read_excel(acwr_file)
+        if "Minutes" in hist_df.columns:
+            acwr_val = compute_acwr(hist_df)["acwr"]
+            st.metric("ACWR", f"{acwr_val:.2f}" if acwr_val else "n/a")
+            st.caption("Показваме последните 28 реда (ако има):")
+            st.dataframe(hist_df.tail(28))
+        else:
+            st.error("Файлът трябва да съдържа колона 'Minutes'.")
+
+    st.subheader("Комбиниране CS + ACWR → демо план")
+    if cs_val and acwr_val is not None:
+        demo_base = pd.DataFrame({
+            "Week": [1,1,1,1,1],
+            "Day":  ["Mon","Tue","Wed","Thu","Fri"],
+            "Zone": [1,2,3,4,5],
+            "Minutes": [60,50,45,40,30]
+        })
+        plan = gen_simple_plan(cs_val, acwr_val, demo_base)
+        st.dataframe(plan)
+
+        buf = io.BytesIO()
+        plan.to_excel(buf, index=False)
+        buf.seek(0)
+        st.download_button(
+            "📥 Свали демо плана (Excel)",
+            data=buf,
+            file_name="demo_plan_cs_acwr.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.caption("Въведи CS (бутон „Изчисли CS“) и качи Excel история за ACWR, за да видиш комбиниран план.")
